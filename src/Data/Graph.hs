@@ -38,8 +38,8 @@ data Graph m v e =
     }
 
 --------------------------------------------------------------------------------
-reduceByKey :: Monad m => (v -> v -> v) -> Graph m v e -> Graph m v e
-reduceByKey k g = Graph (vertices g ~> start) (edges g)
+reduceByKey :: Ord k => (v -> v -> v) -> Source (k, v) -> Source (k, v)
+reduceByKey k s = s ~> start
   where
     start = construct $ running M.empty
 
@@ -76,3 +76,5 @@ join l r = teeT start l r
           _         -> return ()
 
       stop
+
+--------------------------------------------------------------------------------

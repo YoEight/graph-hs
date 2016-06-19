@@ -16,6 +16,7 @@ module Data.Graph
     , vertices
     , edges
     , reduceByKey
+    , join
     ) where
 
 --------------------------------------------------------------------------------
@@ -55,23 +56,23 @@ reduceByKey k g = Graph (vertices g ~> start) (edges g)
         stop
 
 --------------------------------------------------------------------------------
-join :: Monad m => Graph m v e -> Graph m u e -> Graph m (v, u) e
-join g j = Graph (teeT start (vertices g) (vertices j)) undefined
+join :: Ord k => Source (k, a) -> Source (k, b) -> Source (k, (a, b))
+join l r = teeT start l r
   where
     start = construct $ onLeft M.empty
 
     onLeft m = do
-        (vid, v) <- awaits L <|> onRight m
-        onLeft $ M.insert vid (Left v) m
+      (vid, a) <- awaits L <|> onRight m
+      onLeft $ M.insert vid (Left a) m
 
     onRight m = do
-        (vid, u) <- awaits R <|> finish m
-        onRight $ M.adjust (\(Left v) -> Right (v, u)) vid m
+      (vid, b) <- awaits R <|> finish m
+      onRight $ M.adjust (\(Left a) -> Right (a, b)) vid m
 
     finish m = do
-        for_ (M.assocs m) $ \(vid, res) ->
-          case res of
-            Right tup -> yield (vid, tup)
-            _         -> return ()
+      for_ (M.assocs m) $ \(vid, res) ->
+        case res of
+          Right tup -> yield (vid, tup)
+          _         -> return ()
 
-        stop
+      stop

@@ -24,8 +24,8 @@ import Control.Applicative
 import Data.Foldable
 
 --------------------------------------------------------------------------------
-import Data.Machine
 import qualified Data.Map as M
+import Pipes
 
 --------------------------------------------------------------------------------
 type VertexId = Integer
@@ -33,15 +33,18 @@ type VertexId = Integer
 --------------------------------------------------------------------------------
 data Graph m v e =
     Graph
-    { vertices :: SourceT m (VertexId, v)
-    , edges    :: SourceT m (VertexId, VertexId, e)
+    { vertices :: forall r. Producer (VertexId, v) m r
+    , edges    :: forall r. Producer (VertexId, VertexId, e) m r
     }
 
 --------------------------------------------------------------------------------
-reduceByKey :: Ord k => (v -> v -> v) -> Source (k, v) -> Source (k, v)
-reduceByKey k s = s ~> start
+reduceByKey :: (Ord k, MonadPlus m)
+            => (v -> v -> v)
+            -> Producer (k, v) m r
+            -> Producer (k, v) m r
+reduceByKey k s = s >-> start
   where
-    start = construct $ running M.empty
+    start = running M.empty
 
     running m = do
         (vid, v) <- await <|> finish m
@@ -53,28 +56,35 @@ reduceByKey k s = s ~> start
 
     finish m = do
         traverse_ yield $ M.assocs m
-        stop
+        mzero
 
 --------------------------------------------------------------------------------
-join :: Ord k => Source (k, a) -> Source (k, b) -> Source (k, (a, b))
-join l r = teeT start l r
+join :: (Ord k, MonadPlus m)
+     => Producer (k, a) m r
+     -> Producer (k, b) m r
+     -> Producer (k, (a, b)) m r
+join start_l start_r = start
   where
-    start = construct $ onLeft M.empty
+    start = onLeft M.empty start_l
 
-    onLeft m = do
-      (vid, a) <- awaits L <|> onRight m
-      onLeft $ M.insert vid (Left a) m
+    onLeft m cur_l = do
+      res <- lift $ next cur_l
+      case res of
+        Left _                -> onRight m start_r
+        Right ((vid, a), nxt) -> onLeft (M.insert vid (Left a) m) nxt
 
-    onRight m = do
-      (vid, b) <- awaits R <|> finish m
-      onRight $ M.adjust (\(Left a) -> Right (a, b)) vid m
+    onRight m cur_r = do
+      res <- lift $ next cur_r
+      case res of
+        Left _ -> finish m
+        Right ((vid, b), nxt) ->
+          onRight (M.adjust (\(Left a) -> Right (a, b)) vid m) nxt
 
     finish m = do
       for_ (M.assocs m) $ \(vid, res) ->
         case res of
           Right tup -> yield (vid, tup)
           _         -> return ()
-
-      stop
+      mzero
 
 --------------------------------------------------------------------------------

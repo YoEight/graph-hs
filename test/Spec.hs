@@ -1,2 +1,9 @@
+import Data.Graph
+
+test_graph :: Graph IO Integer ()
+test_graph = fromList [ (x, x) | x <- [1..10]] []
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = do
+  xs <- collectVertices test_graph
+  print xs

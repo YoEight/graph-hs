@@ -17,6 +17,9 @@ module Data.Graph
     , edges
     , reduceByKey
     , join
+    , fromList
+    , collectVertices
+    , collectEdges
     ) where
 
 --------------------------------------------------------------------------------
@@ -24,8 +27,9 @@ import Control.Applicative
 import Data.Foldable
 
 --------------------------------------------------------------------------------
+import Data.Conduit
+import Data.Conduit.List
 import qualified Data.Map as M
-import Pipes
 
 --------------------------------------------------------------------------------
 type VertexId = Integer
@@ -33,58 +37,84 @@ type VertexId = Integer
 --------------------------------------------------------------------------------
 data Graph m v e =
     Graph
-    { vertices :: forall r. Producer (VertexId, v) m r
-    , edges    :: forall r. Producer (VertexId, VertexId, e) m r
+    { vertices :: Source m (VertexId, v)
+    , edges    :: Source m (VertexId, VertexId, e)
     }
 
 --------------------------------------------------------------------------------
-reduceByKey :: (Ord k, MonadPlus m)
+collect :: Monad m => Source m a -> m [a]
+collect = sourceToList
+
+--------------------------------------------------------------------------------
+collectVertices :: Monad m => Graph m v e -> m [(VertexId, v)]
+collectVertices = collect . vertices
+
+--------------------------------------------------------------------------------
+collectEdges :: Monad m => Graph m v e -> m [(VertexId, VertexId, e)]
+collectEdges = collect . edges
+
+--------------------------------------------------------------------------------
+fromList :: Monad m
+         => [(VertexId, v)]
+         -> [(VertexId, VertexId, e)]
+         -> Graph m v e
+fromList vs es = Graph (sourceList vs) (sourceList es)
+
+--------------------------------------------------------------------------------
+reduceByKey :: (Ord k, Monad m)
             => (v -> v -> v)
-            -> Producer (k, v) m r
-            -> Producer (k, v) m r
-reduceByKey k s = s >-> start
+            -> Source m (k, v)
+            -> Source m (k, v)
+reduceByKey k s = s =$= start
   where
     start = running M.empty
 
     running m = do
-        (vid, v) <- await <|> finish m
+        res <- await
 
-        let _F (Just v') = Just $ k v v'
-            _F _         = Just v
-
-        running $ M.alter _F vid m
-
-    finish m = do
-        traverse_ yield $ M.assocs m
-        mzero
+        case res of
+          Nothing       -> sourceList $ M.assocs m
+          Just (vid, v) ->
+            let _F (Just v') = Just $ k v v'
+                _F _         = Just v in
+            running $ M.alter _F vid m
 
 --------------------------------------------------------------------------------
-join :: (Ord k, MonadPlus m)
-     => Producer (k, a) m r
-     -> Producer (k, b) m r
-     -> Producer (k, (a, b)) m r
-join start_l start_r = start
+join :: (Ord k, Monad m)
+     => Source m (k, a)
+     -> Source m (k, b)
+     -> Source m (k, (a, b))
+join start_l start_r = appended =$= start
   where
-    start = onLeft M.empty start_l
+    appended = do
+      mapOutput Left start_l
+      mapOutput Right start_r
 
-    onLeft m cur_l = do
-      res <- lift $ next cur_l
-      case res of
-        Left _                -> onRight m start_r
-        Right ((vid, a), nxt) -> onLeft (M.insert vid (Left a) m) nxt
+    start = onLeft M.empty
 
-    onRight m cur_r = do
-      res <- lift $ next cur_r
+    onLeft m = do
+      res <- await
       case res of
-        Left _ -> finish m
-        Right ((vid, b), nxt) ->
-          onRight (M.adjust (\(Left a) -> Right (a, b)) vid m) nxt
+        Nothing -> return ()
+        Just e  ->
+          case e of
+            Left (vid, a) -> onLeft (M.insert vid (Left a) m)
+            right         -> leftover right >> onRight m
+
+    onRight m = do
+      res <- await
+      case res of
+        Nothing -> finish m
+        Just e  ->
+          case e of
+            Right (vid, b) ->
+              onRight (M.adjust (\(Left a) -> Right (a, b)) vid m)
+            _ -> return ()
 
     finish m = do
       for_ (M.assocs m) $ \(vid, res) ->
         case res of
           Right tup -> yield (vid, tup)
           _         -> return ()
-      mzero
 
 --------------------------------------------------------------------------------

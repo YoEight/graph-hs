@@ -21,6 +21,7 @@ module Data.Graph
     , collectVertices
     , collectEdges
     , connectedComponents
+    , degrees
     ) where
 
 --------------------------------------------------------------------------------
@@ -72,6 +73,24 @@ connectedComponents g = Graph (edges g =$= go M.empty) (edges g)
           _F (Just prev)
             | prev > node = Just node
             | otherwise   = Just prev in
+      M.alter _F key
+
+--------------------------------------------------------------------------------
+degrees :: Monad m => Graph m v e -> Graph m Integer e
+degrees g = Graph (edges g =$= go M.empty) (edges g)
+  where
+    go m = do
+      res <- await
+      case res of
+        Just (src, dest, _)
+          | src == dest -> go (counting src 2 m)
+          | otherwise ->
+            go (counting src 1 (counting dest 1 m))
+        Nothing -> sourceList $ M.assocs m
+
+    counting key incr =
+      let _F Nothing  = Just incr
+          _F (Just i) = Just (i + incr) in
       M.alter _F key
 
 --------------------------------------------------------------------------------

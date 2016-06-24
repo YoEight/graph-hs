@@ -20,6 +20,7 @@ module Data.Graph
     , fromList
     , collectVertices
     , collectEdges
+    , connectedComponents
     ) where
 
 --------------------------------------------------------------------------------
@@ -52,6 +53,26 @@ collectVertices = collect . vertices
 --------------------------------------------------------------------------------
 collectEdges :: Monad m => Graph m v e -> m [(VertexId, VertexId, e)]
 collectEdges = collect . edges
+
+--------------------------------------------------------------------------------
+connectedComponents :: Monad m => Graph m v e -> Graph m VertexId e
+connectedComponents g = Graph (edges g =$= go M.empty) (edges g)
+  where
+    go m = do
+      res <- await
+      case res of
+        Just (src, dest, _) ->
+          go (smallestNode src dest (smallestNode dest src m))
+        Nothing -> sourceList $ M.assocs m
+
+    smallestNode key node =
+      let _F Nothing
+            | key > node = Just node
+            | otherwise  = Just key
+          _F (Just prev)
+            | prev > node = Just node
+            | otherwise   = Just prev in
+      M.alter _F key
 
 --------------------------------------------------------------------------------
 fromList :: Monad m

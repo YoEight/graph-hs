@@ -37,6 +37,8 @@ import qualified Data.Map as M
 type VertexId = Integer
 
 --------------------------------------------------------------------------------
+-- | A 'Graph' is composed of 2 streams. One for the vertices and the other for
+--   the edges.
 data Graph m v e =
     Graph
     { vertices :: Source m (VertexId, v)
@@ -44,18 +46,24 @@ data Graph m v e =
     }
 
 --------------------------------------------------------------------------------
+-- | Consumes a stream to produce a list of values.
 collect :: Monad m => Source m a -> m [a]
 collect = sourceToList
 
 --------------------------------------------------------------------------------
+-- | Produces a list of vertices from a 'Graph'.
 collectVertices :: Monad m => Graph m v e -> m [(VertexId, v)]
 collectVertices = collect . vertices
 
 --------------------------------------------------------------------------------
+-- | Produces a list of edges from a 'Graph'.
 collectEdges :: Monad m => Graph m v e -> m [(VertexId, VertexId, e)]
 collectEdges = collect . edges
 
 --------------------------------------------------------------------------------
+-- | Computes the connected component membership of each vertex and return a
+--   'Graph' with the vertex value containing the lowest 'VertexId' in the
+--   connected component containing that vertex.
 connectedComponents :: Monad m => Graph m v e -> Graph m VertexId e
 connectedComponents g = Graph (edges g =$= go M.empty) (edges g)
   where
@@ -76,6 +84,8 @@ connectedComponents g = Graph (edges g =$= go M.empty) (edges g)
       M.alter _F key
 
 --------------------------------------------------------------------------------
+-- | The degree of each vertex in the 'Graph'. Vertices with no edges are not
+--   returned in the resulting 'Graph'.
 degrees :: Monad m => Graph m v e -> Graph m Integer e
 degrees g = Graph (edges g =$= go M.empty) (edges g)
   where
@@ -94,6 +104,7 @@ degrees g = Graph (edges g =$= go M.empty) (edges g)
       M.alter _F key
 
 --------------------------------------------------------------------------------
+-- | Constructs a 'Graph' based on list of tuples.
 fromList :: Monad m
          => [(VertexId, v)]
          -> [(VertexId, VertexId, e)]
@@ -101,6 +112,7 @@ fromList :: Monad m
 fromList vs es = Graph (sourceList vs) (sourceList es)
 
 --------------------------------------------------------------------------------
+-- | Merges the values for each key using an associative reduce function.
 reduceByKey :: (Ord k, Monad m)
             => (v -> v -> v)
             -> Source m (k, v)
@@ -120,6 +132,8 @@ reduceByKey k s = s =$= start
             running $ M.alter _F vid m
 
 --------------------------------------------------------------------------------
+-- | Returns a stream containing all pairs of elements with matching keys in
+--   this and other.
 join :: (Ord k, Monad m)
      => Source m (k, a)
      -> Source m (k, b)

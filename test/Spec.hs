@@ -12,6 +12,7 @@ tests = testGroup "Graph tests"
     [ testCase "Simple graph" testSimpleGraph
     , testCase "Join graphs" testJoinGraph
     , testCase "Connected Components" testConnectedComponents
+    , testCase "Degrees" testDegrees
     ]
 
 testSimpleGraph :: IO ()
@@ -57,6 +58,32 @@ testConnectedComponents = do
         cc    = connectedComponents graph
 
     fin <- collectVertices cc
+    assertEqual "Vertices should be equal" fin expected
+
+testDegrees :: IO ()
+testDegrees = do
+
+    let vs = [ (x, x) | x <- [1..7] ]
+        es = [ (2, 3, ())
+             , (3, 4, ())
+             , (3, 5, ())
+             , (4, 7, ())
+             , (5, 6, ())
+             , (5, 7, ())
+             , (6, 7, ())
+             , (7, 7, ())
+             ]
+        expected = [ (2, 1)
+                   , (3, 3)
+                   , (4, 2)
+                   , (5, 3)
+                   , (6, 2)
+                   , (7, 5)
+                   ]
+        graph = fromList vs es
+        dg    = degrees graph
+
+    fin <- collectVertices dg
     assertEqual "Vertices should be equal" fin expected
 
 main :: IO ()
